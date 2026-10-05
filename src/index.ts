@@ -61,7 +61,8 @@ function describeCheck(name: string, result: CheckResult): Condition {
 function main(): void {
   const config = loadConfig();
   const shutdown = createShutdown(config.dryRun, config.shutdownDelaySeconds);
-  const minUptimeMs = config.minUptimeMinutes * 60_000;
+  // The minimum uptime is the idle timeout itself: one setting, one length of time for both.
+  const minUptimeMs = config.idleTimeoutMinutes * 60_000;
 
   // A switched-off check is simply not built, so it can neither hold the PC up nor report as unavailable.
   const checks: ActivityCheck[] = [];
@@ -78,7 +79,7 @@ function main(): void {
    * and it changes nothing, so it is safe to call every tick.
    */
   function checkUptime(): UptimeStatus {
-    const name = `PC on for at least ${config.minUptimeMinutes} min`;
+    const name = `PC on for at least ${config.idleTimeoutMinutes} min`;
     const uptimeMs = readUptimeMs();
     if (uptimeMs === null) {
       return {
@@ -168,7 +169,7 @@ function main(): void {
       } else {
         verdict =
           `no shutdown (PC has been on for only ${formatDuration(uptimeStatus.uptimeMs)}, ` +
-          `shutdown is blocked until ${config.minUptimeMinutes} min)`;
+          `shutdown is blocked until ${config.idleTimeoutMinutes} min)`;
         tone = 'warning';
       }
     } else if (shutdownDue) {
@@ -244,7 +245,7 @@ function main(): void {
       } else {
         log(
           `Idle timeout reached, but not shutting down: the PC has been on for only ` +
-            `${formatDuration(uptimeStatus.uptimeMs)}, under the ${config.minUptimeMinutes} min minimum.`,
+            `${formatDuration(uptimeStatus.uptimeMs)}, under the ${config.idleTimeoutMinutes} min minimum.`,
           'warning',
         );
       }
@@ -265,7 +266,7 @@ function main(): void {
   log(
     `Idle-shutdown guardian started. Checking every ${config.pollIntervalSeconds}s and shutting down after ` +
       `${config.idleThreshold} consecutive idle checks (${config.idleTimeoutMinutes} min), never within the first ` +
-      `${config.minUptimeMinutes} min after the PC is switched on, with a ${config.shutdownDelaySeconds} second ` +
+      `${config.idleTimeoutMinutes} min after the PC is switched on, with a ${config.shutdownDelaySeconds} second ` +
       `countdown before it goes off. ` +
       `RDT-Client: ${config.rdt?.baseUrl ?? 'off'}, Plex: ${config.plex?.baseUrl ?? 'off'}.` +
       (config.dryRun ? ' DRY_RUN is on, no shutdown will be issued.' : ''),

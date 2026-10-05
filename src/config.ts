@@ -13,13 +13,12 @@ export interface PlexSettings {
 
 export interface Config {
   pollIntervalSeconds: number;
+  /** How long everything must stay quiet before a shutdown, and also how long the PC must have been on: it is never shut down before then. */
   idleTimeoutMinutes: number;
   /** Consecutive idle checks needed before shutting down. */
   idleThreshold: number;
   requestTimeoutMs: number;
   dryRun: boolean;
-  /** The PC is never shut down until it has been on this long, whatever else is true. */
-  minUptimeMinutes: number;
   /** How long Windows counts down once a shutdown is issued, during which `shutdown /a` cancels it. */
   shutdownDelaySeconds: number;
   /** Null when the RDT-Client check is switched off. */
@@ -85,7 +84,7 @@ export function loadConfig(): Config {
   loadDotEnv();
 
   const pollIntervalSeconds = readPositiveNumber('POLL_INTERVAL_SECONDS', 60);
-  const idleTimeoutMinutes = readPositiveNumber('IDLE_TIMEOUT_MINUTES', 60);
+  const idleTimeoutMinutes = readPositiveNumber('SHUTDOWN_AFTER_MINUTES_IDLE', 60);
 
   return {
     pollIntervalSeconds,
@@ -93,7 +92,6 @@ export function loadConfig(): Config {
     idleThreshold: Math.ceil((idleTimeoutMinutes * 60) / pollIntervalSeconds),
     requestTimeoutMs: 10_000,
     dryRun: readBoolean('DRY_RUN', false),
-    minUptimeMinutes: readPositiveNumber('MIN_UPTIME_MINUTES', 60),
     shutdownDelaySeconds: readPositiveInteger('SHUTDOWN_DELAY_SECONDS', 10),
     // A switched-off check is not built, so its address and credentials are not required.
     rdt: readBoolean('RDT_CHECK', true)

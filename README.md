@@ -28,7 +28,7 @@ A few details worth knowing:
 - **Watching** means Plex lists at least one session that is playing or buffering. A paused session does not count, so a film left paused for the whole idle timeout lets the PC shut down. This also covers a client that exits without telling Plex it stopped: Plex keeps listing that session as paused for a few minutes before it times it out, and the guardian ignores it in the meantime. The log line says how many paused sessions it ignored, for example `plex=idle (active sessions: 0, paused (ignored): 1)`.
 - **If it cannot get an answer** (Plex is switched off, a password is wrong, the network blips), it does not assume things are quiet. It resets the tally, writes the problem to the log and tries again a minute later. The side effect is that if Plex or RDT-Client is not running, the PC will not shut itself down.
 - **After it starts a shutdown** the tally goes back to zero, so if you cancel you get another full hour.
-- **The first hour after you turn the PC on is protected.** Whatever else is true, it will not start a shutdown until Windows says the PC has been on for at least 60 minutes. You can change that number with `MIN_UPTIME_MINUTES` in `.env`, for example to test it. It counts from when the PC was switched on, not from when the guardian started. If the idle timeout is reached inside that hour, it logs that it is holding off and shuts down on the first check after the hour, provided things are still quiet. If it cannot read how long the PC has been on, it does not shut down.
+- **The first hour after you turn the PC on is protected.** Whatever else is true, it will not start a shutdown until Windows says the PC has been on for at least 60 minutes. That length of time is the same setting as the quiet period, `SHUTDOWN_AFTER_MINUTES_IDLE` in `.env`, so changing it moves both together. It counts from when the PC was switched on, not from when the guardian started. If the idle timeout is reached inside that hour, it logs that it is holding off and shuts down on the first check after the hour, provided things are still quiet. If it cannot read how long the PC has been on, it does not shut down.
 - **Fast Startup can fool the guard.** Windows' Fast Startup can stop "Shut down" from resetting the uptime clock, in which case the guard would think the PC has been on for longer than it has. Every log line about the guard says when the PC was switched on ("since ..."). If that time is ever wrong, turn Fast Startup off (Control Panel, Power Options, Choose what the power buttons do).
 - **Every shutdown is written to `shutdown.log`**, with the evidence behind it. See "Checking a shutdown the next morning".
 - **Both checks have an on/off switch** in `.env`: `RDT_CHECK` and `PLEX_CHECK` (see "All the settings"). A switched-off check is not asked at all, so it can neither keep the PC on nor count as "cannot get an answer".
@@ -98,18 +98,17 @@ These go in `.env`. Changes only take effect after you stop and start the guardi
 | `RDT_URL` | No | `http://localhost:6500` | The address you type into your browser to open RDT-Client |
 | `PLEX_URL` | No | `http://localhost:32400` | The address of your Plex server |
 | `POLL_INTERVAL_SECONDS` | No | `60` | How often it checks |
-| `IDLE_TIMEOUT_MINUTES` | No | `60` | How long things must stay quiet before it shuts down |
-| `MIN_UPTIME_MINUTES` | No | `60` | How long the PC must have been on before it may be shut down at all. Whatever else is true, no shutdown is issued before then. Must be above zero, but a small number such as `0.1` makes the guard all but invisible for testing |
+| `SHUTDOWN_AFTER_MINUTES_IDLE` | No | `60` | One length of time that does two jobs. Things must stay quiet this long before it shuts down, and the PC must have been on at least this long before it may be shut down at all. So when a download finishes and nothing else is going on, the PC goes off an hour later (by default), and never in the first hour after you switch it on |
 | `SHUTDOWN_DELAY_SECONDS` | No | `10` | How long the countdown lasts once a shutdown is issued. The guardian logs "about to shut down in this many seconds" first, then Windows counts down for that long, during which `npm run cancel` stops it. A whole number of seconds, above zero |
 | `DRY_RUN` | No | `false` | `true` means practice mode: never shut down, and log every condition and the overall result on each check |
 | `RDT_CHECK` | No | `true` | `false` stops it asking RDT-Client, so downloads no longer keep the PC on |
 | `PLEX_CHECK` | No | `true` | `false` stops it asking Plex, so streams no longer keep the PC on |
 
-The on/off settings accept `true` or `false` (`1`/`0` and `yes`/`no` also work). If you turn off both `RDT_CHECK` and `PLEX_CHECK`, nothing can ever count as activity, so the PC shuts down once `IDLE_TIMEOUT_MINUTES` has passed (and the PC has been on for an hour). The guardian says so in the log when it starts.
+The on/off settings accept `true` or `false` (`1`/`0` and `yes`/`no` also work). If you turn off both `RDT_CHECK` and `PLEX_CHECK`, nothing can ever count as activity, so the PC shuts down once `SHUTDOWN_AFTER_MINUTES_IDLE` has passed (and the PC has been on for that long). The guardian says so in the log when it starts.
 
-Keep `MIN_UPTIME_MINUTES` at its default of 60 for normal use, and only lower it temporarily to test. An old `NIGHTLY_SHUTDOWN` or `NIGHTLY_SHUTDOWN_TIME` line left in `.env` is ignored, and you can delete it.
+Keep `SHUTDOWN_AFTER_MINUTES_IDLE` at its default of 60 for normal use, and only lower it temporarily to test. An old `MIN_UPTIME_MINUTES`, `NIGHTLY_SHUTDOWN` or `NIGHTLY_SHUTDOWN_TIME` line left in `.env` is ignored, and you can delete it. (`MIN_UPTIME_MINUTES` no longer exists: `SHUTDOWN_AFTER_MINUTES_IDLE` sets the minimum uptime as well.) `SHUTDOWN_AFTER_MINUTES_IDLE` used to be called `IDLE_TIMEOUT_MINUTES`. A line with the old name is ignored, so the default of 60 applies until you rename it.
 
-The number of quiet checks needed is `IDLE_TIMEOUT_MINUTES` multiplied by 60, divided by `POLL_INTERVAL_SECONDS`, rounded up. With the defaults that is 60 checks, one a minute.
+The number of quiet checks needed is `SHUTDOWN_AFTER_MINUTES_IDLE` multiplied by 60, divided by `POLL_INTERVAL_SECONDS`, rounded up. With the defaults that is 60 checks, one a minute.
 
 ## Checking that it behaves
 
@@ -162,7 +161,7 @@ The result is either `shutdown would be issued (idle timeout reached)` or `no sh
 2026-10-02T21:07:11.655Z ERROR Could not confirm idle, idle counter reset. rdt=idle (downloading: 0 of 3), plex=unavailable (Plex returned HTTP 401)
 ```
 
-**5. It decides to shut down.** Set `IDLE_TIMEOUT_MINUTES=1` and `POLL_INTERVAL_SECONDS=10` (that is 6 quiet checks), restart, leave everything quiet and wait about a minute. In practice mode it says what it would do, and nothing is shut down. This only happens once the PC has been on for `MIN_UPTIME_MINUTES` (an hour by default). To test without waiting, add `MIN_UPTIME_MINUTES=0.1` to `.env` and restart. See step 6 for what you see before that:
+**5. It decides to shut down.** Set `SHUTDOWN_AFTER_MINUTES_IDLE=1` and `POLL_INTERVAL_SECONDS=10` (that is 6 quiet checks), restart, leave everything quiet and wait about a minute. In practice mode it says what it would do, and nothing is shut down. The PC must also have been on for `SHUTDOWN_AFTER_MINUTES_IDLE`, which is the same minute here, so a PC that has been on for a few minutes is fine. See step 6 for the one case where it holds off:
 
 ```
 2026-10-02T21:08:12.010Z [dry-run] idle timeout reached: true (6/6 consecutive idle checks)
@@ -173,18 +172,18 @@ The result is either `shutdown would be issued (idle timeout reached)` or `no sh
 2026-10-02T21:08:12.012Z SHUTDOWN RESULT: DRY_RUN is on, no shutdown command was run
 ```
 
-**6. The uptime guard.** Do this while the PC has been on for less than `MIN_UPTIME_MINUTES`. Straight after a restart works, or set `MIN_UPTIME_MINUTES` to more than the PC's current uptime (for example `1440`). Use the short timings from step 5. Once the tally reaches its target the guardian should refuse, and say why:
+**6. The uptime guard.** The quiet tally only starts once the guardian is running, so it normally takes at least as long as the guard and the guard never gets a say. It only shows itself when the checks are far apart, because then the tally can reach its target before the PC has been on long enough. To see it, restart the PC, start the guardian straight away, and set `SHUTDOWN_AFTER_MINUTES_IDLE=10` and `POLL_INTERVAL_SECONDS=300` (that is 2 quiet checks, 5 minutes apart, against 10 minutes of uptime needed). Leave everything quiet. Once the tally reaches its target the guardian should refuse, and say why:
 
 ```
-2026-10-05T10:34:10.929Z [dry-run] PC on for at least 60 min: false (on for 14m, since 2026-10-05T11:19:43+01:00)
-2026-10-05T10:34:10.929Z [dry-run] idle timeout reached: true (6/6 consecutive idle checks)
-2026-10-05T10:34:10.929Z [dry-run] result: no shutdown (PC has been on for only 14m, shutdown is blocked until 60 min)
-2026-10-05T10:34:10.929Z Idle timeout reached, but not shutting down: the PC has been on for only 14m, under the 60 min minimum.
+2026-10-05T10:26:10.929Z [dry-run] PC on for at least 10 min: false (on for 6m, since 2026-10-05T11:19:43+01:00)
+2026-10-05T10:26:10.929Z [dry-run] idle timeout reached: true (2/2 consecutive idle checks)
+2026-10-05T10:26:10.929Z [dry-run] result: no shutdown (PC has been on for only 6m, shutdown is blocked until 10 min)
+2026-10-05T10:26:10.929Z Idle timeout reached, but not shutting down: the PC has been on for only 6m, under the 10 min minimum.
 ```
 
-Check that the "since" time really is when you switched the PC on. Nothing is written to `shutdown.log` while the guard is holding it off. Once the PC has been on for `MIN_UPTIME_MINUTES`, the next check should say `shutdown would be issued`.
+Check that the "since" time really is when you switched the PC on. Nothing is written to `shutdown.log` while the guard is holding it off. Once the PC has been on for `SHUTDOWN_AFTER_MINUTES_IDLE`, the next check should say `shutdown would be issued`.
 
-**7. The real thing (optional).** Save your work first. The PC must have been on for `MIN_UPTIME_MINUTES` or more, or the guard will hold the shutdown off, so for this test set `MIN_UPTIME_MINUTES=0.1` as well. Set `DRY_RUN=false`, keep the short timings from step 5, restart the guardian (not the PC) and leave things quiet. After about a minute the guardian logs `SHUTDOWN COUNTDOWN: about to shut down in 10 seconds` and Windows starts counting down. Open a second terminal and run `npm run cancel` to stop it. You only have `SHUTDOWN_DELAY_SECONDS` to do it, so set that to something like `60` for this test. If you do not cancel, the PC really will shut down. The short timings are still on, so it will try again a minute later: press `Ctrl+C` in the guardian's window to stop it.
+**7. The real thing (optional).** Save your work first. Set `DRY_RUN=false`, keep the short timings from step 5 (the PC only needs to have been on for that one minute), restart the guardian (not the PC) and leave things quiet. After about a minute the guardian logs `SHUTDOWN COUNTDOWN: about to shut down in 10 seconds` and Windows starts counting down. Open a second terminal and run `npm run cancel` to stop it. You only have `SHUTDOWN_DELAY_SECONDS` to do it, so set that to something like `60` for this test. If you do not cancel, the PC really will shut down. The short timings are still on, so it will try again a minute later: press `Ctrl+C` in the guardian's window to stop it.
 
 When you are happy, remove the short timings from `.env`, set `DRY_RUN=false` (or delete that line) and start the guardian again.
 
@@ -257,8 +256,8 @@ If the task never ran, choose **Action**, then **Enable All Tasks History** in T
 | `The operation was aborted due to timeout` | The program took more than 10 seconds to answer |
 | `DRY_RUN must be true or false` (or `RDT_CHECK`, `PLEX_CHECK`) | That on/off setting in `.env` has some other value. Use `true` or `false` |
 | `SHUTDOWN_DELAY_SECONDS must be a whole number above zero` | The value in `.env` is zero, negative, a fraction or not a number. Use something like `10` or `60` |
-| `MIN_UPTIME_MINUTES must be a positive number` | The value in `.env` is zero, negative or not a number. Use something like `60`, or `0.1` for testing |
-| `Idle timeout reached, but not shutting down: the PC has been on for only ...` | The uptime guard is working. The PC was quiet for the whole idle timeout, but it has not been on for `MIN_UPTIME_MINUTES` (an hour by default) yet. It shuts down on the first check after that, if things are still quiet |
+| `SHUTDOWN_AFTER_MINUTES_IDLE must be a positive number` | The value in `.env` is zero, negative or not a number. Use something like `60`, or `1` for testing |
+| `Idle timeout reached, but not shutting down: the PC has been on for only ...` | The uptime guard is working. The PC was quiet for the whole idle timeout, but it has not been on for `SHUTDOWN_AFTER_MINUTES_IDLE` (an hour by default) yet. It shuts down on the first check after that, if things are still quiet |
 | `Idle timeout reached, but not shutting down: could not read how long the PC has been on` | Windows would not say how long the PC has been on, so the guardian plays safe and does nothing. It tries again every check |
 | `Could not write to ...shutdown.log` | The guardian could not add to `shutdown.log` (a full disk, or the folder is read-only). The shutdown still goes ahead, and the same lines are in the normal log |
 | `Shutdown is only implemented for Windows` | You are on a Mac or Linux machine. Set `DRY_RUN=true` to test there |
