@@ -1,0 +1,19 @@
+{
+  "name": "idle-shutdown-guardian",
+  "version": "1.0.0",
+  "description": "Shuts the machine down after a period with no RDT-Client downloads and no Plex streams, and at 1am every night.",
+  "private": true,
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "cancel": "shutdown /a"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

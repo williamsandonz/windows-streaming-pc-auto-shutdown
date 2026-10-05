@@ -1,0 +1,144 @@
+Idle Shutdown Guardian: diagnosing a start-up problem
+=====================================================
+
+Use this when the guardian works when you start it by hand but is not
+running after the PC has been switched on.
+
+
+Before you start
+----------------
+Switch the PC on the way you normally do (Shut down and power on, or
+Restart) and wait two or three minutes. Then work down the steps below and
+stop at the first one that explains it.
+
+The commands are typed into PowerShell. The easiest way to open it in the
+project folder is to open the folder in File Explorer, click the address
+bar, type "powershell" and press Enter.
+
+
+Step 1: Check the task's General tab
+------------------------------------
+Open Task Scheduler, double-click the task and look at the General tab.
+
+If it says "Run only when user is logged on" and the trigger is "At
+startup", Windows will not run the task at boot. This is the most common
+cause, and it fits "works by hand, not at boot".
+
+Fix: choose "Run whether user is logged on or not" and enter your password
+when you save. If you sign in with a PIN, use your Microsoft account
+password. Then restart and see whether it now runs.
+
+
+Step 2: Did Task Scheduler launch it?
+-------------------------------------
+In Task Scheduler, select the task and read "Last Run Time" and "Last Run
+Result". They are columns in the task list.
+
+If Last Run Time is from before the restart, the trigger never fired. Go to
+step 4.
+
+If Last Run Time is just after the restart, it launched. Read the result:
+
+  0x41301     The task is running. This is what you want. Go to step 3.
+  0x41303     The task has never run.
+  0x0         It started and then finished. The guardian should keep
+              running, so read guardian.log (step 3) to see why it stopped.
+  0x1         The program ran and failed. guardian.log usually says why, for
+              example a missing setting in .env.
+  0x2         Windows could not find the Program/script in the Action.
+  0x2331      cmd.exe could not find "node". See "Node not found" below.
+  0x800710E0  A Conditions setting blocked the start, for example "Start
+              only if the computer is on AC power".
+  0x8007010B  The "Start in" folder is wrong or blank.
+  0x80070005  Access denied. The account the task runs as cannot use the
+              project folder.
+
+
+Step 3: Is it running, and what is it saying?
+---------------------------------------------
+1. Open Task Manager (Ctrl+Shift+Esc), go to the Details tab and look for
+   node.exe. If it is there, the guardian is running.
+
+2. In PowerShell, in the project folder, run:
+
+     Get-Content .\guardian.log -Tail 20
+
+   The guardian writes a line every minute, so the newest line should be
+   under a minute old. Add -Wait to the command to watch it live.
+
+   If there is no guardian.log, look for one in C:\Windows\System32. It ends
+   up there when "Start in" was left blank. If it is nowhere, the program
+   never got as far as running.
+
+
+Step 4: If the task never fired
+-------------------------------
+Turn on the task history. In Task Scheduler choose Action, then "Enable All
+Tasks History". Restart the PC, select the task and open its History tab.
+
+Look at the entries just after the boot time. "Task Start Failed" or "Action
+failed to start" will say why. If there are no entries at all after the boot,
+the trigger did not fire: go back to step 1, and see Fast Startup below.
+
+
+Step 5: Running, but the PC never shuts down
+--------------------------------------------
+Read the lines in guardian.log:
+
+  unavailable   Plex or RDT-Client could not be reached, or refused the
+                request. The guardian plays safe and does not count that
+                round as quiet. They may only start once you sign in, or the
+                login or token in .env may be wrong.
+  active        Something is busy, for example a download or a Plex session.
+                A paused Plex stream counts.
+  Idle 12/60    It is counting. It needs 60 quiet rounds in a row, so it
+                will not shut the PC down until it has been running and
+                quiet for a full hour.
+  DRY_RUN is on Practice mode. It logs what it would do but never shuts
+                anything down. Set DRY_RUN=false in .env and restart it.
+
+
+Other things to try
+-------------------
+Run the task by hand. Right-click the task and choose Run.
+  - If that works but the boot does not, the problem is the trigger, the
+    "Run whether user is logged on or not" setting, a Conditions setting or
+    Fast Startup.
+  - If that fails but "npm start" in a terminal works, the problem is the
+    account, the PATH or the folders. See "Node not found" below.
+
+Fast Startup. Windows may skip the "At startup" trigger after Shut down and
+power on, while Restart works. Test by using Restart once. If only Restart
+works, add a second trigger on the Triggers tab: "At log on" of any user.
+The default setting "Do not start a new instance" stops two copies running.
+Or turn Fast Startup off: Control Panel, Power Options, "Choose what the
+power buttons do", "Change settings that are currently unavailable", then
+untick "Turn on fast startup".
+
+Stops after three days. On the Settings tab, untick "Stop the task if it
+runs longer than". It is on by default, set to 3 days, and would stop the
+guardian for good.
+
+Conditions. On the Conditions tab, untick "Start the task only if the
+computer is on AC power" (laptops) and any network condition.
+
+Node not found (0x2331). The account the task runs as may not have node on
+its PATH. Use the full path in the Action's "Add arguments":
+
+  /c ""C:\Program Files\nodejs\node.exe" dist\index.js >> guardian.log 2>&1"
+
+Change the node.exe path if Node is installed elsewhere. In PowerShell,
+(Get-Command node).Source shows where it is. "Start in" must be the project
+folder, for example C:\path\to\auto-shutdown.
+
+
+If you are still stuck
+----------------------
+Write down:
+  - the Last Run Result from step 2
+  - the last 20 lines of guardian.log (they contain no passwords or tokens)
+  - whether the task is set to "Run whether user is logged on or not"
+  - whether Restart behaves differently from Shut down and power on
+
+Do not share your .env file. It holds your RDT-Client password and Plex
+token.
