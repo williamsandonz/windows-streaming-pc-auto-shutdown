@@ -1,18 +1,37 @@
 import { isRecord, type ActivityCheck } from './activity';
 import type { PlexSettings } from './config';
 
-/** Reads the session count from MediaContainer: its size attribute, or the Metadata entries as a fallback. */
-function countSessions(body: unknown): number {
+interface SessionCounts {
+  /** Sessions that hold the PC up: playing, buffering, or whose state could not be read. */
+  active: number;
+  /** Sessions Plex reports as paused, which are ignored. */
+  paused: number;
+}
+
+/** Only an explicit "paused" is ignored, so a session whose state cannot be read still counts as activity. */
+function isPaused(session: unknown): boolean {
+  const player = isRecord(session) ? session.Player : undefined;
+  const state = isRecord(player) ? player.state : undefined;
+  return typeof state === 'string' && state.toLowerCase() === 'paused';
+}
+
+/** Reads the sessions from MediaContainer: the Metadata entries, or the size attribute when there are none. */
+function countSessions(body: unknown): SessionCounts {
   const container = isRecord(body) ? body.MediaContainer : undefined;
   if (!isRecord(container)) throw new Error('Plex response has no MediaContainer');
 
   const { size, Metadata } = container;
-  if (typeof size === 'number') return size;
-  if (Array.isArray(Metadata)) return Metadata.length;
+  if (Array.isArray(Metadata)) {
+    const paused = Metadata.filter(isPaused).length;
+    return { active: Metadata.length - paused, paused };
+  }
+  // Without the entries there is no state to read, so every session counts.
+  if (typeof size === 'number') return { active: size, paused: 0 };
   throw new Error('Plex response has neither size nor Metadata');
 }
 
-// /status/sessions also lists paused sessions, so a paused stream counts as activity.
+// /status/sessions lists paused sessions too, and keeps listing one for a few minutes after a client exits
+// without telling Plex it stopped (Plex only times it out then). A paused session is therefore not activity.
 export function createPlexCheck(settings: PlexSettings, timeoutMs: number): ActivityCheck {
   return {
     name: 'plex',
@@ -23,8 +42,11 @@ export function createPlexCheck(settings: PlexSettings, timeoutMs: number): Acti
       });
       if (!res.ok) throw new Error(`Plex returned HTTP ${res.status}`);
 
-      const sessions = countSessions(await res.json());
-      return { active: sessions > 0, detail: `active sessions: ${sessions}` };
+      const { active, paused } = countSessions(await res.json());
+      return {
+        active: active > 0,
+        detail: `active sessions: ${active}` + (paused > 0 ? `, paused (ignored): ${paused}` : ''),
+      };
     },
   };
 }

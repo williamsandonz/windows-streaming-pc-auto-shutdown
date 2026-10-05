@@ -89,8 +89,8 @@ Read the lines in guardian.log:
                 request. The guardian plays safe and does not count that
                 round as quiet. They may only start once you sign in, or the
                 login or token in .env may be wrong.
-  active        Something is busy, for example a download or a Plex session.
-                A paused Plex stream counts.
+  active        Something is busy, for example a download or a Plex session
+                that is playing. A paused Plex stream does not count.
   Idle 12/60    It is counting. It needs 60 quiet rounds in a row, so it
                 will not shut the PC down until it has been running and
                 quiet for a full hour.

@@ -25,7 +25,7 @@ Think of a night watchman doing a round once a minute.
 A few details worth knowing:
 
 - **Downloading** means RDT-Client reports a torrent with a download speed above zero, or with a status of downloading. Stalled or queued torrents do not count.
-- **Watching** means Plex lists at least one session. A paused film still counts, because Plex still lists it.
+- **Watching** means Plex lists at least one session that is playing or buffering. A paused session does not count, so a film left paused for the whole idle timeout lets the PC shut down. This also covers a client that exits without telling Plex it stopped: Plex keeps listing that session as paused for a few minutes before it times it out, and the guardian ignores it in the meantime. The log line says how many paused sessions it ignored, for example `plex=idle (active sessions: 0, paused (ignored): 1)`.
 - **If it cannot get an answer** (Plex is switched off, a password is wrong, the network blips), it does not assume things are quiet. It resets the tally, writes the problem to the log and tries again a minute later. The side effect is that if Plex or RDT-Client is not running, the PC will not shut itself down.
 - **After it starts a shutdown** the tally goes back to zero, so if you cancel you get another full hour.
 - **The first hour after you turn the PC on is protected.** Whatever else is true, it will not start a shutdown until Windows says the PC has been on for at least 60 minutes. You can change that number with `MIN_UPTIME_MINUTES` in `.env`, for example to test it. It counts from when the PC was switched on, not from when the guardian started. If the idle timeout is reached inside that hour, it logs that it is holding off and shuts down on the first check after the hour, provided things are still quiet. If it cannot read how long the PC has been on, it does not shut down.
@@ -154,7 +154,7 @@ The result is either `shutdown would be issued (idle timeout reached)` or `no sh
 2026-10-02T21:06:11.802Z Activity detected, idle counter reset. rdt=active (downloading: 1 of 4), plex=idle (active sessions: 0)
 ```
 
-**3. Plex sees streams.** Play something in Plex. The line should say `plex=active (active sessions: 1)`.
+**3. Plex sees streams.** Play something in Plex. The line should say `plex=active (active sessions: 1)`. Now pause it: within a check or two the line should change to `plex=idle (active sessions: 0, paused (ignored): 1)`.
 
 **4. It plays safe when it cannot ask.** Stop Plex, or put a wrong token in `.env` and restart the guardian. The line should start with `ERROR`, say `plex=unavailable`, and the tally should not climb:
 
@@ -262,7 +262,8 @@ If the task never ran, choose **Action**, then **Enable All Tasks History** in T
 | `Idle timeout reached, but not shutting down: could not read how long the PC has been on` | Windows would not say how long the PC has been on, so the guardian plays safe and does nothing. It tries again every check |
 | `Could not write to ...shutdown.log` | The guardian could not add to `shutdown.log` (a full disk, or the folder is read-only). The shutdown still goes ahead, and the same lines are in the normal log |
 | `Shutdown is only implemented for Windows` | You are on a Mac or Linux machine. Set `DRY_RUN=true` to test there |
-| The tally never reaches the target | Look at the log: something is reporting `active`. A paused Plex stream or a stuck download counts as busy |
+| The tally never reaches the target | Look at the log: something is reporting `active`. A playing Plex stream or a stuck download counts as busy. A paused Plex stream does not |
+| Plex still shows `active` for a few minutes after a client exits | The client did not tell Plex it stopped, so Plex keeps the session listed until it times it out (about 3 minutes). A session left paused is ignored, but one that was playing when the client vanished counts until Plex drops it |
 
 ## Next steps: Sunshine and Moonlight
 
