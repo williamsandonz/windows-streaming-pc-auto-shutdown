@@ -1,44 +1,50 @@
 import { execFile } from 'node:child_process';
 import { log } from './log';
 
-const DELAY_SECONDS = 60;
-
 /** Starts a shutdown, given the reason to show in the countdown message. */
 export type Shutdown = (reason: string) => Promise<void>;
 
-function buildMessage(reason: string): string {
-  return `${reason} Shutting down in ${DELAY_SECONDS} seconds.`;
+export function formatSeconds(seconds: number): string {
+  return `${seconds} second${seconds === 1 ? '' : 's'}`;
 }
 
-/** Starts a Windows shutdown with a 60 second countdown. `shutdown /a` aborts it. */
-function shutdownNow(reason: string): Promise<void> {
-  const args = ['/s', '/t', String(DELAY_SECONDS), '/c', buildMessage(reason)];
+function buildMessage(reason: string, delaySeconds: number): string {
+  return `${reason} Shutting down in ${formatSeconds(delaySeconds)}.`;
+}
 
-  return new Promise<void>((resolve, reject) => {
-    execFile('shutdown', args, (error, _stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr.trim() || error.message));
-        return;
-      }
+/** Starts a Windows shutdown that counts down for `delaySeconds`. `shutdown /a` aborts it. */
+function shutdownNow(delaySeconds: number): Shutdown {
+  return (reason) =>
+    new Promise<void>((resolve, reject) => {
+      const args = ['/s', '/t', String(delaySeconds), '/c', buildMessage(reason, delaySeconds)];
 
-      log(`Shutdown scheduled in ${DELAY_SECONDS} seconds. Run "shutdown /a" to abort.`);
-      resolve();
+      execFile('shutdown', args, (error, _stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || error.message));
+          return;
+        }
+        resolve();
+      });
     });
-  });
 }
 
-async function logOnly(reason: string): Promise<void> {
-  log(`DRY_RUN is on, not running: shutdown /s /t ${DELAY_SECONDS} /c "${buildMessage(reason)}"`);
+function logOnly(delaySeconds: number): Shutdown {
+  return async (reason) => {
+    log(
+      `DRY_RUN is on, not running: shutdown /s /t ${delaySeconds} /c "${buildMessage(reason, delaySeconds)}"`,
+      'dryRun',
+    );
+  };
 }
 
 /**
  * Picks the shutdown action once, at startup, so an unsupported platform fails
  * straight away rather than an hour into the run.
  */
-export function createShutdown(dryRun: boolean): Shutdown {
-  if (dryRun) return logOnly;
+export function createShutdown(dryRun: boolean, delaySeconds: number): Shutdown {
+  if (dryRun) return logOnly(delaySeconds);
   if (process.platform !== 'win32') {
     throw new Error('Shutdown is only implemented for Windows. Set DRY_RUN=true to run on other platforms.');
   }
-  return shutdownNow;
+  return shutdownNow(delaySeconds);
 }

@@ -1,8 +1,5 @@
 import { join } from 'node:path';
 
-/** Local hour (0-23) in which the nightly shutdown fires, 1 being 01:00 to 01:59. */
-const NIGHTLY_SHUTDOWN_HOUR = 1;
-
 export interface RdtSettings {
   baseUrl: string;
   username: string;
@@ -21,8 +18,10 @@ export interface Config {
   idleThreshold: number;
   requestTimeoutMs: number;
   dryRun: boolean;
-  /** Local hour in which to shut down whatever the checks say, or null when switched off. */
-  nightlyShutdownHour: number | null;
+  /** The PC is never shut down until it has been on this long, whatever else is true. */
+  minUptimeMinutes: number;
+  /** How long Windows counts down once a shutdown is issued, during which `shutdown /a` cancels it. */
+  shutdownDelaySeconds: number;
   /** Null when the RDT-Client check is switched off. */
   rdt: RdtSettings | null;
   /** Null when the Plex check is switched off. */
@@ -65,6 +64,15 @@ function readPositiveNumber(name: string, fallback: number): number {
   return value;
 }
 
+/** Whole seconds only, as that is all Windows' `shutdown /t` accepts. */
+function readPositiveInteger(name: string, fallback: number): number {
+  const value = readPositiveNumber(name, fallback);
+  if (!Number.isInteger(value)) {
+    throw new Error(`${name} must be a whole number above zero, got "${process.env[name]?.trim()}".`);
+  }
+  return value;
+}
+
 function readBoolean(name: string, fallback: boolean): boolean {
   const raw = process.env[name]?.trim().toLowerCase();
   if (!raw) return fallback;
@@ -85,7 +93,8 @@ export function loadConfig(): Config {
     idleThreshold: Math.ceil((idleTimeoutMinutes * 60) / pollIntervalSeconds),
     requestTimeoutMs: 10_000,
     dryRun: readBoolean('DRY_RUN', false),
-    nightlyShutdownHour: readBoolean('NIGHTLY_SHUTDOWN', true) ? NIGHTLY_SHUTDOWN_HOUR : null,
+    minUptimeMinutes: readPositiveNumber('MIN_UPTIME_MINUTES', 60),
+    shutdownDelaySeconds: readPositiveInteger('SHUTDOWN_DELAY_SECONDS', 10),
     // A switched-off check is not built, so its address and credentials are not required.
     rdt: readBoolean('RDT_CHECK', true)
       ? {

@@ -1,7 +1,7 @@
 {
   "name": "idle-shutdown-guardian",
   "version": "1.0.0",
-  "description": "Shuts the machine down after a period with no RDT-Client downloads and no Plex streams, and at 1am every night.",
+  "description": "Shuts the machine down after a period with no RDT-Client downloads and no Plex streams, and never within the first hour after the machine is switched on.",
   "private": true,
   "main": "dist/index.js",
   "engines": {
@@ -15,5 +15,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2"
   }
 }
