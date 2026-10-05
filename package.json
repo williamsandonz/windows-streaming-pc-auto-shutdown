@@ -1,7 +1,7 @@
 {
   "name": "idle-shutdown-guardian",
   "version": "1.0.0",
-  "description": "Shuts the machine down after a period with no RDT-Client downloads and no Plex streams, and never within the first hour after the machine is switched on.",
+  "description": "Shuts the machine down after a period with no RDT-Client downloads, no Plex streams and no Sunshine game streams, and never within the first hour after the machine is switched on.",
   "private": true,
   "main": "dist/index.js",
   "engines": {

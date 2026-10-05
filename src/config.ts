@@ -11,6 +11,11 @@ export interface PlexSettings {
   token: string;
 }
 
+export interface SunshineSettings {
+  /** Sunshine's "Port" setting. Its streaming ports sit at fixed offsets above it. */
+  basePort: number;
+}
+
 export interface Config {
   pollIntervalSeconds: number;
   /** How long everything must stay quiet before a shutdown, and also how long the PC must have been on: it is never shut down before then. */
@@ -25,6 +30,8 @@ export interface Config {
   rdt: RdtSettings | null;
   /** Null when the Plex check is switched off. */
   plex: PlexSettings | null;
+  /** Null when the Sunshine check is switched off. */
+  sunshine: SunshineSettings | null;
 }
 
 /** Reads .env from the project root, so the working directory does not matter under PM2 or Task Scheduler. */
@@ -72,6 +79,17 @@ function readPositiveInteger(name: string, fallback: number): number {
   return value;
 }
 
+/** The highest offset from Sunshine's base port to a streaming port (audio), which must still be a valid port. */
+const HIGHEST_STREAM_PORT_OFFSET = 11;
+
+function readPort(name: string, fallback: number): number {
+  const value = readPositiveInteger(name, fallback);
+  if (value + HIGHEST_STREAM_PORT_OFFSET > 65535) {
+    throw new Error(`${name} must be a port number up to ${65535 - HIGHEST_STREAM_PORT_OFFSET}, got "${value}".`);
+  }
+  return value;
+}
+
 function readBoolean(name: string, fallback: boolean): boolean {
   const raw = process.env[name]?.trim().toLowerCase();
   if (!raw) return fallback;
@@ -106,6 +124,10 @@ export function loadConfig(): Config {
           baseUrl: readUrl('PLEX_URL', 'http://localhost:32400'),
           token: readRequired('PLEX_TOKEN'),
         }
+      : null,
+    // On by default only on Windows, as the check reads Windows' netstat. Sunshine needs no login, so nothing else is required.
+    sunshine: readBoolean('SUNSHINE_CHECK', process.platform === 'win32')
+      ? { basePort: readPort('SUNSHINE_BASE_PORT', 47989) }
       : null,
   };
 }

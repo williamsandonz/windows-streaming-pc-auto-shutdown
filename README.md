@@ -1,16 +1,16 @@
 # Idle Shutdown Guardian
 
-A small program that switches your Windows PC off by itself once Plex and RDT-Client have had nothing to do for an hour. It never switches the PC off during the first hour after you turn it on, and it records every shutdown in `shutdown.log`, so the next morning you can check that it was right.
+A small program that switches your Windows PC off by itself once Plex, RDT-Client and Sunshine (Moonlight game streaming) have had nothing to do for an hour. It never switches the PC off during the first hour after you turn it on, and it records every shutdown in `shutdown.log`, so the next morning you can check that it was right.
 
 ## Goals
 
 1. **Switch the PC off when nobody is using it**, so it is not left running all night and you do not have to remember to do it.
-2. **Never interrupt anything real.** It only shuts down after confirming, 60 checks in a row, that nothing is downloading and nobody is watching. If it is ever unsure, it leaves the PC on. On top of that, it will not shut the PC down at all until the PC has been on for an hour, whatever else is true.
+2. **Never interrupt anything real.** It only shuts down after confirming, 60 checks in a row, that nothing is downloading, nobody is watching and nobody is streaming a game. If it is ever unsure, it leaves the PC on. On top of that, it will not shut the PC down at all until the PC has been on for an hour, whatever else is true.
 3. **Run by itself.** Set it up once, have it start with the PC, and forget about it.
 4. **Keep you in control.** There is a countdown warning before the PC goes off (10 seconds unless you change it), a one-line command to cancel it, a practice mode that never shuts anything down, and `shutdown.log`, which records every shutdown along with the evidence behind it.
 5. **Stay simple.** One small program, no database, no accounts to create. Passwords live in one private settings file, never in the code.
 
-It deliberately does not watch for other things you might be doing on the PC (browsing, playing games at the PC itself, working), it does not switch the PC back on, and it does not change anything in Plex or RDT-Client: it only asks them questions. It also does not cancel a shutdown for you if something starts during the countdown. You do that yourself (see "Commands you may need"). It does not yet know about Moonlight game streams from Sunshine, which is covered under "Next steps: Sunshine and Moonlight" below.
+It deliberately does not watch for other things you might be doing on the PC (browsing, playing games at the PC itself, working), it does not switch the PC back on, and it does not change anything in Plex or RDT-Client: it only asks them questions. It also does not cancel a shutdown for you if something starts during the countdown. You do that yourself (see "Commands you may need").
 
 ## How it works
 
@@ -18,20 +18,22 @@ Think of a night watchman doing a round once a minute.
 
 1. He asks **RDT-Client**: "Is anything downloading right now?"
 2. He asks **Plex**: "Is anyone watching something right now?"
-3. If either says yes, he forgets any quiet time he had counted and starts again from zero.
-4. If both say no, he adds one to a tally of quiet rounds.
-5. When the tally reaches 60 (an hour of quiet) **and the PC has been on for at least an hour**, he tells Windows to shut down. The guardian logs a warning ("about to shut down in 10 seconds") and Windows counts down for that long, during which you can cancel it. The length of the countdown is `SHUTDOWN_DELAY_SECONDS`.
+3. He asks **Sunshine**: "Is a Moonlight client streaming from this PC right now?"
+4. If any of them says yes, he forgets any quiet time he had counted and starts again from zero.
+5. If all of them say no, he adds one to a tally of quiet rounds.
+6. When the tally reaches 60 (an hour of quiet) **and the PC has been on for at least an hour**, he tells Windows to shut down. The guardian logs a warning ("about to shut down in 10 seconds") and Windows counts down for that long, during which you can cancel it. The length of the countdown is `SHUTDOWN_DELAY_SECONDS`.
 
 A few details worth knowing:
 
 - **Downloading** means RDT-Client reports a torrent with a download speed above zero, or with a status of downloading. Stalled or queued torrents do not count.
 - **Watching** means Plex lists at least one session that is playing or buffering. A paused session does not count, so a film left paused for the whole idle timeout lets the PC shut down. This also covers a client that exits without telling Plex it stopped: Plex keeps listing that session as paused for a few minutes before it times it out, and the guardian ignores it in the meantime. The log line says how many paused sessions it ignored, for example `plex=idle (active sessions: 0, paused (ignored): 1)`.
-- **If it cannot get an answer** (Plex is switched off, a password is wrong, the network blips), it does not assume things are quiet. It resets the tally, writes the problem to the log and tries again a minute later. The side effect is that if Plex or RDT-Client is not running, the PC will not shut itself down.
+- **Streaming** means one of Sunshine's streaming ports is open. Sunshine is understood to open its video, control and audio ports (UDP 47998, 47999 and 48000 by default) only while a Moonlight client is connected, so the guardian reads Windows' list of open ports with `netstat` on every round and looks for them. It needs no Sunshine login. One open port is enough to count. The log line says which are open, for example `sunshine=active (streaming ports open: 47998, 47999, 48000)`. See "Checking that Sunshine is detected" for how to confirm this on your PC.
+- **If it cannot get an answer** (Plex is switched off, a password is wrong, the network blips), it does not assume things are quiet. It resets the tally, writes the problem to the log and tries again a minute later. The side effect is that if Plex or RDT-Client is not running, the PC will not shut itself down. The same goes for Sunshine if `netstat` cannot be read. A Sunshine that is simply not running is not a problem: its ports are closed, which reads as idle.
 - **After it starts a shutdown** the tally goes back to zero, so if you cancel you get another full hour.
 - **The first hour after you turn the PC on is protected.** Whatever else is true, it will not start a shutdown until Windows says the PC has been on for at least 60 minutes. That length of time is the same setting as the quiet period, `SHUTDOWN_AFTER_MINUTES_IDLE` in `.env`, so changing it moves both together. It counts from when the PC was switched on, not from when the guardian started. If the idle timeout is reached inside that hour, it logs that it is holding off and shuts down on the first check after the hour, provided things are still quiet. If it cannot read how long the PC has been on, it does not shut down.
 - **Fast Startup can fool the guard.** Windows' Fast Startup can stop "Shut down" from resetting the uptime clock, in which case the guard would think the PC has been on for longer than it has. Every log line about the guard says when the PC was switched on ("since ..."). If that time is ever wrong, turn Fast Startup off (Control Panel, Power Options, Choose what the power buttons do).
 - **Every shutdown is written to `shutdown.log`**, with the evidence behind it. See "Checking a shutdown the next morning".
-- **Both checks have an on/off switch** in `.env`: `RDT_CHECK` and `PLEX_CHECK` (see "All the settings"). A switched-off check is not asked at all, so it can neither keep the PC on nor count as "cannot get an answer".
+- **Every check has an on/off switch** in `.env`: `RDT_CHECK`, `PLEX_CHECK` and `SUNSHINE_CHECK` (see "All the settings"). A switched-off check is not asked at all, so it can neither keep the PC on nor count as "cannot get an answer".
 - It logs in to RDT-Client the same way Sonarr and Radarr do.
 
 ## What you need
@@ -103,8 +105,10 @@ These go in `.env`. Changes only take effect after you stop and start the guardi
 | `DRY_RUN` | No | `false` | `true` means practice mode: never shut down, and log every condition and the overall result on each check |
 | `RDT_CHECK` | No | `true` | `false` stops it asking RDT-Client, so downloads no longer keep the PC on |
 | `PLEX_CHECK` | No | `true` | `false` stops it asking Plex, so streams no longer keep the PC on |
+| `SUNSHINE_CHECK` | No | `true` on Windows, `false` elsewhere | `false` stops it looking for Sunshine game streams, so Moonlight streams no longer keep the PC on. It reads Windows' `netstat`, so on a Mac or Linux machine it is off unless you turn it on, and it will not start there |
+| `SUNSHINE_BASE_PORT` | No | `47989` | Sunshine's "Port" setting (its web page, Configuration, then Network). The streaming ports it watches are 9, 10 and 11 above it, so 47998, 47999 and 48000 by default. Only change it if you changed Sunshine's port |
 
-The on/off settings accept `true` or `false` (`1`/`0` and `yes`/`no` also work). If you turn off both `RDT_CHECK` and `PLEX_CHECK`, nothing can ever count as activity, so the PC shuts down once `SHUTDOWN_AFTER_MINUTES_IDLE` has passed (and the PC has been on for that long). The guardian says so in the log when it starts.
+The on/off settings accept `true` or `false` (`1`/`0` and `yes`/`no` also work). If you turn off all of `RDT_CHECK`, `PLEX_CHECK` and `SUNSHINE_CHECK`, nothing can ever count as activity, so the PC shuts down once `SHUTDOWN_AFTER_MINUTES_IDLE` has passed (and the PC has been on for that long). The guardian says so in the log when it starts.
 
 Keep `SHUTDOWN_AFTER_MINUTES_IDLE` at its default of 60 for normal use, and only lower it temporarily to test. An old `MIN_UPTIME_MINUTES`, `NIGHTLY_SHUTDOWN` or `NIGHTLY_SHUTDOWN_TIME` line left in `.env` is ignored, and you can delete it. (`MIN_UPTIME_MINUTES` no longer exists: `SHUTDOWN_AFTER_MINUTES_IDLE` sets the minimum uptime as well.) `SHUTDOWN_AFTER_MINUTES_IDLE` used to be called `IDLE_TIMEOUT_MINUTES`. A line with the old name is ignored, so the default of 60 applies until you rename it.
 
@@ -130,27 +134,28 @@ Colours only appear when the output goes to a terminal. `guardian.log` and `shut
 **What practice mode adds to the log.** On every check, `DRY_RUN=true` follows the normal log line with one `[dry-run]` line for each condition, saying `true`, `false`, `unavailable` (the service could not be asked) or `off` (you switched it off), and then a `result` line saying whether a shutdown would be issued:
 
 ```
-2026-10-02T21:04:11.730Z Idle 1/60. rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0)
+2026-10-02T21:04:11.730Z Idle 1/60. rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0), sunshine=idle (streaming ports closed: 47998, 47999, 48000)
 2026-10-02T21:04:11.730Z [dry-run] PC on for at least 60 min: true (on for 3h 4m, since 2026-10-02T19:00:11+01:00)
 2026-10-02T21:04:11.730Z [dry-run] rdt active: false (downloading: 0 of 3)
 2026-10-02T21:04:11.730Z [dry-run] plex active: false (active sessions: 0)
+2026-10-02T21:04:11.730Z [dry-run] sunshine active: false (streaming ports closed: 47998, 47999, 48000)
 2026-10-02T21:04:11.730Z [dry-run] idle timeout reached: false (1/60 consecutive idle checks)
 2026-10-02T21:04:11.730Z [dry-run] result: no shutdown (idle timeout not reached yet, 1/60)
 ```
 
 The result is either `shutdown would be issued (idle timeout reached)` or `no shutdown`, with the reason. The uptime line comes first because it overrides all the others: while the PC has been on for under an hour, the result is always `no shutdown`, however quiet things are. None of this extra logging happens when `DRY_RUN=false`.
 
-**1. Quiet.** With nothing downloading and nothing playing, the tally climbs:
+**1. Quiet.** With nothing downloading, nothing playing and nothing streaming, the tally climbs:
 
 ```
-2026-10-02T21:04:11.730Z Idle 1/60. rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0)
-2026-10-02T21:05:11.741Z Idle 2/60. rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0)
+2026-10-02T21:04:11.730Z Idle 1/60. rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0), sunshine=idle (streaming ports closed: 47998, 47999, 48000)
+2026-10-02T21:05:11.741Z Idle 2/60. rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0), sunshine=idle (streaming ports closed: 47998, 47999, 48000)
 ```
 
 **2. RDT-Client sees downloads.** Start a download in RDT-Client. Within a check or two the line should say `rdt=active` and the tally resets:
 
 ```
-2026-10-02T21:06:11.802Z Activity detected, idle counter reset. rdt=active (downloading: 1 of 4), plex=idle (active sessions: 0)
+2026-10-02T21:06:11.802Z Activity detected, idle counter reset. rdt=active (downloading: 1 of 4), plex=idle (active sessions: 0), sunshine=idle (streaming ports closed: 47998, 47999, 48000)
 ```
 
 **3. Plex sees streams.** Play something in Plex. The line should say `plex=active (active sessions: 1)`. Now pause it: within a check or two the line should change to `plex=idle (active sessions: 0, paused (ignored): 1)`.
@@ -158,7 +163,7 @@ The result is either `shutdown would be issued (idle timeout reached)` or `no sh
 **4. It plays safe when it cannot ask.** Stop Plex, or put a wrong token in `.env` and restart the guardian. The line should start with `ERROR`, say `plex=unavailable`, and the tally should not climb:
 
 ```
-2026-10-02T21:07:11.655Z ERROR Could not confirm idle, idle counter reset. rdt=idle (downloading: 0 of 3), plex=unavailable (Plex returned HTTP 401)
+2026-10-02T21:07:11.655Z ERROR Could not confirm idle, idle counter reset. rdt=idle (downloading: 0 of 3), plex=unavailable (Plex returned HTTP 401), sunshine=idle (streaming ports closed: 47998, 47999, 48000)
 ```
 
 **5. It decides to shut down.** Set `SHUTDOWN_AFTER_MINUTES_IDLE=1` and `POLL_INTERVAL_SECONDS=10` (that is 6 quiet checks), restart, leave everything quiet and wait about a minute. In practice mode it says what it would do, and nothing is shut down. The PC must also have been on for `SHUTDOWN_AFTER_MINUTES_IDLE`, which is the same minute here, so a PC that has been on for a few minutes is fine. See step 6 for the one case where it holds off:
@@ -166,7 +171,7 @@ The result is either `shutdown would be issued (idle timeout reached)` or `no sh
 ```
 2026-10-02T21:08:12.010Z [dry-run] idle timeout reached: true (6/6 consecutive idle checks)
 2026-10-02T21:08:12.010Z [dry-run] result: shutdown would be issued (idle timeout reached)
-2026-10-02T21:08:12.011Z SHUTDOWN WOULD TRIGGER (DRY_RUN, nothing is executed): idle timeout reached | idle 6/6 checks (1 min) | rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0) | PC on for 3h 8m, since 2026-10-02T19:00:11+01:00
+2026-10-02T21:08:12.011Z SHUTDOWN WOULD TRIGGER (DRY_RUN, nothing is executed): idle timeout reached | idle 6/6 checks (1 min) | rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0), sunshine=idle (streaming ports closed: 47998, 47999, 48000) | PC on for 3h 8m, since 2026-10-02T19:00:11+01:00
 2026-10-02T21:08:12.011Z SHUTDOWN COUNTDOWN (DRY_RUN, nothing is executed): would shut down in 10 seconds
 2026-10-02T21:08:12.012Z DRY_RUN is on, not running: shutdown /s /t 10 /c "Idle timeout reached. Shutting down in 10 seconds."
 2026-10-02T21:08:12.012Z SHUTDOWN RESULT: DRY_RUN is on, no shutdown command was run
@@ -187,12 +192,26 @@ Check that the "since" time really is when you switched the PC on. Nothing is wr
 
 When you are happy, remove the short timings from `.env`, set `DRY_RUN=false` (or delete that line) and start the guardian again.
 
+## Checking that Sunshine is detected
+
+The Sunshine check relies on Sunshine opening its streaming ports only while a client is connected. That is how Sunshine is understood to work, not something confirmed on your machine, so check it once before you rely on it. Keep `DRY_RUN=true` for this.
+
+1. **Check the ports by hand.** Start a Moonlight stream, then in a second terminal run `netstat -ano -p UDP | findstr ":47998 :47999 :48000"`. You should see UDP lines while streaming and nothing once you disconnect.
+2. **Note your Sunshine port.** Open Sunshine's web page (`https://localhost:47990` by default) and look at the "Port" setting under Configuration, then Network (47989 by default). If it is not 47989, set `SUNSHINE_BASE_PORT` to it, and use the ports 9, 10 and 11 above it in step 1.
+3. **Check the guardian sees it.** Start the guardian, then start a stream. Within a check the log line should say `sunshine=active (streaming ports open: 47998, 47999, 48000)` and the tally should reset. Close the stream and it should go back to `sunshine=idle` within a check or two:
+
+```
+2026-10-05T21:10:11.402Z Activity detected, idle counter reset. rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0), sunshine=active (streaming ports open: 47998, 47999, 48000)
+```
+
+If step 1 shows nothing during a stream, Sunshine does not open its ports that way on your setup and the check cannot see your streams, so set `SUNSHINE_CHECK=false` and keep the guardian stopped while you stream. The alternatives are Sunshine's web interface (it needs the web page's login and has to cope with a self-signed certificate, and it is not confirmed that it can say who is streaming) and Sunshine's Command Preparations (Configuration, then General), which can run a command when a stream's app starts and another when it ends, to create and delete a flag file. That follows the app rather than the connection, so it can still read as streaming after you disconnect without quitting the app. Neither is built.
+
 ## Checking a shutdown the next morning
 
 Every time the guardian decides to shut the PC down, it adds lines to `shutdown.log` in the project folder, next to `package.json`, as well as to the normal log. The file holds shutdowns and nothing else, so it stays short. It is written to the same place however the guardian was started (Task Scheduler, `npm start` or PM2). Each shutdown makes three lines: the decision with the evidence behind it, the countdown warning (written just before the command is run, so it is always there even if the PC goes off straight after), then what happened to the command.
 
 ```
-2026-10-06T01:12:08+01:00 SHUTDOWN TRIGGERED: idle timeout reached | idle 60/60 checks (60 min) | rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0) | PC on for 5h 41m, since 2026-10-05T19:30:27+01:00
+2026-10-06T01:12:08+01:00 SHUTDOWN TRIGGERED: idle timeout reached | idle 60/60 checks (60 min) | rdt=idle (downloading: 0 of 3), plex=idle (active sessions: 0), sunshine=idle (streaming ports closed: 47998, 47999, 48000) | PC on for 5h 41m, since 2026-10-05T19:30:27+01:00
 2026-10-06T01:12:08+01:00 SHUTDOWN COUNTDOWN: about to shut down in 10 seconds, run "shutdown /a" to cancel
 2026-10-06T01:12:08+01:00 SHUTDOWN RESULT: Windows accepted the command, the PC goes off in 10 seconds unless it is cancelled
 ```
@@ -200,7 +219,7 @@ Every time the guardian decides to shut the PC down, it adds lines to `shutdown.
 To read it, run `Get-Content .\shutdown.log -Tail 10` in the project folder. To judge whether the shutdown was right, look at:
 
 - **When.** The time at the start of each line is your local time, with its offset from UTC. The lines in `guardian.log` are in UTC (the `Z`), so subtract the offset to find the same moment there: `01:12:08+01:00` is `00:12:08Z`.
-- **Why it thought the PC was idle.** `idle 60/60 checks` means that for the whole hour every check found RDT-Client and Plex quiet. The answers from the final check follow it. If you were using the PC at that time, this is the line that tells you what it missed.
+- **Why it thought the PC was idle.** `idle 60/60 checks` means that for the whole hour every check found RDT-Client, Plex and Sunshine quiet. The answers from the final check follow it. If you were using the PC at that time, this is the line that tells you what it missed.
 - **How long the PC had been on.** It must be over an hour, and the "since" time should be when you switched the PC on.
 - **What became of the command.** `Windows accepted the command` means the countdown started, and the `COUNTDOWN` line before it says how long it was. `command FAILED` means Windows refused it, so the PC stayed on, and the guardian tries again a minute later. In practice mode the first line says `WOULD TRIGGER (DRY_RUN, nothing is executed)`, so you can leave `DRY_RUN=true` overnight and read in the morning what it would have done.
 
@@ -254,33 +273,20 @@ If the task never ran, choose **Action**, then **Enable All Tasks History** in T
 | `fetch failed` followed by `ECONNREFUSED` | That program is not running, or the address or port in `.env` is wrong |
 | `RDT_URL must be a full address` (or `PLEX_URL`) | The address needs `http://` at the front, for example `http://localhost:6500` |
 | `The operation was aborted due to timeout` | The program took more than 10 seconds to answer |
-| `DRY_RUN must be true or false` (or `RDT_CHECK`, `PLEX_CHECK`) | That on/off setting in `.env` has some other value. Use `true` or `false` |
+| `DRY_RUN must be true or false` (or `RDT_CHECK`, `PLEX_CHECK`, `SUNSHINE_CHECK`) | That on/off setting in `.env` has some other value. Use `true` or `false` |
+| `SUNSHINE_BASE_PORT must be a whole number above zero` (or `a port number up to 65524`) | The value in `.env` is not a port number. Use Sunshine's "Port" setting, `47989` unless you changed it |
+| `sunshine=unavailable (...)` | `netstat` could not be run or read, so the guardian plays safe and resets the tally. The reason is in the brackets. Set `SUNSHINE_CHECK=false` if you do not use Sunshine and it keeps happening |
+| `The Sunshine check reads Windows netstat` | `SUNSHINE_CHECK=true` on a Mac or Linux machine. Set it to `false` there |
 | `SHUTDOWN_DELAY_SECONDS must be a whole number above zero` | The value in `.env` is zero, negative, a fraction or not a number. Use something like `10` or `60` |
 | `SHUTDOWN_AFTER_MINUTES_IDLE must be a positive number` | The value in `.env` is zero, negative or not a number. Use something like `60`, or `1` for testing |
 | `Idle timeout reached, but not shutting down: the PC has been on for only ...` | The uptime guard is working. The PC was quiet for the whole idle timeout, but it has not been on for `SHUTDOWN_AFTER_MINUTES_IDLE` (an hour by default) yet. It shuts down on the first check after that, if things are still quiet |
 | `Idle timeout reached, but not shutting down: could not read how long the PC has been on` | Windows would not say how long the PC has been on, so the guardian plays safe and does nothing. It tries again every check |
 | `Could not write to ...shutdown.log` | The guardian could not add to `shutdown.log` (a full disk, or the folder is read-only). The shutdown still goes ahead, and the same lines are in the normal log |
 | `Shutdown is only implemented for Windows` | You are on a Mac or Linux machine. Set `DRY_RUN=true` to test there |
-| The tally never reaches the target | Look at the log: something is reporting `active`. A playing Plex stream or a stuck download counts as busy. A paused Plex stream does not |
+| The tally never reaches the target | Look at the log: something is reporting `active`. A playing Plex stream, a stuck download or an open Sunshine stream counts as busy. A paused Plex stream does not |
+| `sunshine=active` with nobody streaming | Something has one of the streaming ports open. Run `netstat -ano -p UDP \| findstr ":47998 :47999 :48000"` and look up the process ID in Task Manager. If Sunshine really keeps its ports open while idle on your setup, set `SUNSHINE_CHECK=false` |
 | Plex still shows `active` for a few minutes after a client exits | The client did not tell Plex it stopped, so Plex keeps the session listed until it times it out (about 3 minutes). A session left paused is ignored, but one that was playing when the client vanished counts until Plex drops it |
 
-## Next steps: Sunshine and Moonlight
-
-**Status: not built yet.** The guardian does not currently know about Moonlight game streams, so it can shut the PC down mid-stream if Plex and RDT-Client have both been quiet for an hour. Until this is added, keep `DRY_RUN=true` while you stream, or stop the guardian first.
-
-The aim is a third question on the watchman's round, "Is a Moonlight client streaming from Sunshine right now?", where a stream counts as activity just like a download or a Plex session.
-
-The plan, in order:
-
-1. **Check how Sunshine behaves on your PC.** The idea relies on Sunshine opening its streaming ports (UDP 47998, 47999 and 48000 by default) only while a client is connected. That is how Sunshine is understood to work, not something confirmed on your machine, so check it before any code is written. Start a Moonlight stream, then in a second terminal run `netstat -ano | findstr ":47998 :47999 :48000"`. You should see UDP lines while streaming and nothing once you disconnect. Note down what you see.
-2. **Note your Sunshine settings.** Open Sunshine's web page (`https://localhost:47990` by default) and note its version and the "Port" setting under Configuration, then Network (47989 by default). The streaming ports sit 9, 10 and 11 above that port, so if you have changed it the numbers in step 1 change too.
-3. **Build the check.** If step 1 shows the ports opening and closing with the stream, add a Sunshine check that looks for them on every round using Windows' `netstat`. It needs no Sunshine login. It would add two settings to `.env`: `SUNSHINE_CHECK` (on by default on Windows) and `SUNSHINE_BASE_PORT` (default `47989`).
-4. **Test it like the other checks.** With `DRY_RUN=true`, start a stream and the log line should say `sunshine=active`. Close the stream and it should return to `idle` within a minute or so.
-
-If step 1 shows nothing during a stream, the port approach will not work on your setup. The fallbacks are:
-
-- **Sunshine's web interface.** It needs the web page's username and password and has to cope with its self-signed certificate. It is not confirmed that it can say who is streaming.
-- **Sunshine's Command Preparations** (Configuration, then General). Sunshine can run one command when a stream's app starts and another when it ends, which could create and delete a flag file for the guardian to check. This follows the app rather than the connection, so it can still read as streaming after you disconnect without quitting the app.
 
 ## What is in the folder
 
@@ -289,6 +295,7 @@ If step 1 shows nothing during a stream, the port approach will not work on your
 | `src/index.ts` | The watchman: runs the checks every minute, keeps the tally, applies the one-hour guard and decides when to shut down |
 | `src/rdt.ts` | Asks RDT-Client whether anything is downloading |
 | `src/plex.ts` | Asks Plex whether anyone is watching |
+| `src/sunshine.ts` | Asks Windows whether Sunshine's streaming ports are open, meaning someone is streaming |
 | `src/shutdown.ts` | Runs the Windows shutdown command |
 | `src/config.ts` | Reads your settings from `.env` |
 | `src/log.ts`, `src/activity.ts` | Small helpers for log lines (their colours, and writing `shutdown.log`) and the shape of a check's answer |

@@ -5,6 +5,7 @@ import { describeError, localTimestamp, log, logError, logShutdownEvent, paint, 
 import { createPlexCheck } from './plex';
 import { createRdtCheck } from './rdt';
 import { createShutdown, formatSeconds } from './shutdown';
+import { createSunshineCheck, streamPorts } from './sunshine';
 
 type CheckResult = PromiseSettledResult<ActivityResult>;
 
@@ -71,6 +72,8 @@ function main(): void {
   else switchedOff.push({ name: 'rdt', setting: 'RDT_CHECK' });
   if (config.plex) checks.push(createPlexCheck(config.plex, config.requestTimeoutMs));
   else switchedOff.push({ name: 'plex', setting: 'PLEX_CHECK' });
+  if (config.sunshine) checks.push(createSunshineCheck(config.sunshine, config.requestTimeoutMs));
+  else switchedOff.push({ name: 'sunshine', setting: 'SUNSHINE_CHECK' });
 
   let idleCount = 0;
 
@@ -268,7 +271,8 @@ function main(): void {
       `${config.idleThreshold} consecutive idle checks (${config.idleTimeoutMinutes} min), never within the first ` +
       `${config.idleTimeoutMinutes} min after the PC is switched on, with a ${config.shutdownDelaySeconds} second ` +
       `countdown before it goes off. ` +
-      `RDT-Client: ${config.rdt?.baseUrl ?? 'off'}, Plex: ${config.plex?.baseUrl ?? 'off'}.` +
+      `RDT-Client: ${config.rdt?.baseUrl ?? 'off'}, Plex: ${config.plex?.baseUrl ?? 'off'}, ` +
+      `Sunshine: ${config.sunshine ? `ports ${streamPorts(config.sunshine).join('/')}` : 'off'}.` +
       (config.dryRun ? ' DRY_RUN is on, no shutdown will be issued.' : ''),
     'success',
   );
